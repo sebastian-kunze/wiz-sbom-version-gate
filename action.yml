@@ -1,0 +1,111 @@
+name: 'Wiz SBOM Version Gate'
+description: 'Generates a CycloneDX SBOM with WizCLI and gates builds based on detected package versions'
+author: 'Sebastian Kunze'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  wiz_client_id:
+    description: 'Wiz Service Account Client ID'
+    required: true
+  wiz_client_secret:
+    description: 'Wiz Service Account Client Secret'
+    required: true
+  scan_type:
+    description: 'Type of scan to perform: dir or container-image'
+    required: false
+    default: 'dir'
+  target:
+    description: 'Scan target (directory path or container image reference)'
+    required: false
+    default: '.'
+  rules_file:
+    description: 'Path to rules file'
+    required: false
+    default: ''
+  package:
+    description: 'Single package name to check (if not using rules_file)'
+    required: false
+    default: ''
+  operator:
+    description: "Comparison operator: lt (<), le (<=), gt (>), ge (>=), eq (==), ne (!=)"
+    required: false
+    default: ''
+  version:
+    description: 'Version threshold to compare against'
+    required: false
+    default: ''
+  sbom_file:
+    description: 'Filename for generated CycloneDX SBOM'
+    required: false
+    default: 'wiz-sbom.json'
+  keep_sbom:
+    description: 'Keep the SBOM file after scan completes'
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Verify Dependencies
+      shell: bash
+      run: |
+        for cmd in jq sort curl; do
+          if ! command -v "$cmd" &>/dev/null; then
+            sudo apt-get update -y && sudo apt-get install -y "$cmd"
+          fi
+        done
+
+    - name: Install Wiz CLI
+      shell: bash
+      run: |
+        if ! command -v wizcli &>/dev/null; then
+          echo "==> Detecting runner architecture..."
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64|amd64)
+              WIZ_URL="https://downloads.wiz.io/v1/wizcli/latest/wizcli-linux-amd64"
+              ;;
+            aarch64|arm64)
+              WIZ_URL="https://downloads.wiz.io/v1/wizcli/latest/wizcli-linux-arm64"
+              ;;
+            *)
+              echo "::error::Unsupported architecture: $ARCH"
+              exit 1
+              ;;
+          esac
+
+          echo "==> Downloading Wiz CLI from $WIZ_URL..."
+          sudo curl -Lo /usr/local/bin/wizcli "$WIZ_URL"
+          sudo chmod +x /usr/local/bin/wizcli
+        fi
+
+        wizcli version
+
+    - name: Authenticate Wiz CLI
+      shell: bash
+      env:
+        WIZ_CLIENT_ID: ${{ inputs.wiz_client_id }}
+        WIZ_CLIENT_SECRET: ${{ inputs.wiz_client_secret }}
+      run: |
+        wizcli auth --id "$WIZ_CLIENT_ID" --secret "$WIZ_CLIENT_SECRET"
+
+    - name: Execute SBOM Version Gate
+      shell: bash
+      run: |
+        chmod +x "${{ github.action_path }}/entrypoint.sh"
+
+        ARGS=("-t" "${{ inputs.scan_type }}" "-s" "${{ inputs.target }}" "-f" "${{ inputs.sbom_file }}")
+
+        if [ -n "${{ inputs.rules_file }}" ]; then
+          ARGS+=("-r" "${{ inputs.rules_file }}")
+        elif [ -n "${{ inputs.package }}" ]; then
+          ARGS+=("-p" "${{ inputs.package }}" "-o" "${{ inputs.operator }}" "-v" "${{ inputs.version }}")
+        fi
+
+        if [ "${{ inputs.keep_sbom }}" = "true" ]; then
+          ARGS+=("--keep-sbom")
+        fi
+
+        "${{ github.action_path }}/entrypoint.sh" "${ARGS[@]}"

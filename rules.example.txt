@@ -1,0 +1,21 @@
+# ==============================================================================
+# Wiz SBOM Version Gate Rules
+# Format: <package_name>:<operator>:<target_version>
+# Operators:
+#   lt : Fail if detected version < target_version
+#   le : Fail if detected version <= target_version
+#   gt : Fail if detected version > target_version
+#   ge : Fail if detected version >= target_version
+#   eq : Fail if detected version == target_version
+#   ne : Fail if detected version != target_version
+# ==============================================================================
+
+# Fail if log4j is below 2.17.1
+log4j-core:lt:2.17.1
+
+# Fail if Spring Core is below 5.3.18
+spring-core:lt:5.3.18
+
+# Block known compromised or backdoored releases
+xz-utils:eq:5.6.0
+express:eq:4.16.0
